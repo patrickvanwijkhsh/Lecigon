@@ -78,6 +78,11 @@
         .row button {
             width: 45%;
         }
+
+        #historyPage button {
+            position: sticky;
+            bottom: 10px;
+        }
     </style>
 </head>
 
@@ -88,14 +93,36 @@
     <button id="mainButton" class="start" onclick="mainAction()">START</button>
 
     <div class="big" id="eindtijd"></div><br>
-    <div id="aftellen"></div><br>
+    <div id="aftellen" style="font-weight: bolder;"></div><br>
     <div id="doseLog"></div>
     <div class="row">
         <button class="dose" onclick="addDose()">+1 EXTRA DOSIS</button>
         <button class="remove" onclick="removeLastDose()">- LAATSTE DOSIS</button>
     </div>
-    <button onclick="toggleHistory()">HISTORY</button>
-    <div id="historyView" style="display:none; white-space:pre-line; font-size:20px; margin-top:20px;"></div>
+    <button onclick="openHistory()">HISTORY</button>
+    <div id="historyPage" style="
+    display:none;
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    height:100%;
+    background:white;
+    z-index:9999;
+    overflow:auto;
+    padding:20px;
+">
+
+        <h2>History</h2>
+
+        <div id="historyContent" style="white-space:pre-line; font-size:20px;"></div>
+
+        <button onclick="clearHistory()" style="background:#f44336;color:white;">
+            CLEAR HISTORY
+        </button>
+
+        <button onclick="closeHistory()">TERUG</button>
+    </div>
 
     <script>
         let state = JSON.parse(localStorage.getItem("lecigon")) || {};
@@ -105,13 +132,20 @@
         state.doseLog = state.doseLog || [];
         state.history = state.history || {};   // 👈 BELANGRIJK
         state.warned = state.warned || false;
+        state.running = state.running || false;
+        state.pauzed = state.pauzed || null;
 
         function mainAction() {
             if (!state.startTime) {
                 startTimer();
+                state.running = true;
+            } else if (state.running) {
+                stopTimer();
             } else {
                 reset();
             }
+
+            save();
         }
 
         function save() {
@@ -154,12 +188,17 @@
             state.doses = 0;
             state.doseLog = [];
             state.warned = false;
+            state.running = true;
 
             if (Notification.permission !== "granted") {
                 Notification.requestPermission();
             }
 
             save();
+        }
+        function stopTimer() {
+            if (!confirm("Timer stoppen?")) return;
+            state.running = false;
         }
 
         function addDose() {
@@ -195,21 +234,22 @@
             }
         }
         function renderHistory() {
-            let view = document.getElementById("historyView");
-
-            let text = "Extra doses:\n\n";
+            let view = document.getElementById("historyContent");
 
             let history = state.history || {};
             let dates = Object.keys(history).sort().reverse();
+
             if (dates.length === 0) {
                 view.innerText = "Nog geen history";
                 return;
             }
 
+            let text = "";
+
             for (let date of dates) {
                 text += date + "\n";
 
-                let doses = state.history[date];
+                let doses = history[date];
                 for (let i = 0; i < doses.length; i++) {
                     text += (i + 1) + " - " + doses[i] + "\n";
                 }
@@ -225,8 +265,27 @@
             let last = state.doseLog[state.doseLog.length - 1];
             if (!confirm("Verwijder dosis van " + last + "?")) return;
 
+            // laatste tijd
+            let removedTime = state.doseLog.pop();
             state.doses--;
-            state.doseLog.pop();
+
+            // 👉 vandaag bepalen
+            let now = new Date();
+            let date = now.toLocaleDateString('nl-NL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+
+            // 👉 uit history halen
+            if (state.history[date]) {
+                state.history[date].pop();
+
+                // als leeg → hele dag verwijderen
+                if (state.history[date].length === 0) {
+                    delete state.history[date];
+                }
+            }
 
             save();
         }
@@ -238,8 +297,13 @@
             state.doses = 0;
             state.doseLog = [];
             state.warned = false;
+            state.running = false;
 
             save(); // 👈 NIET localStorage.clear!
+
+            let btn = document.getElementById("mainButton");
+            btn.innerText = "START";
+            btn.className = "start";
 
             document.getElementById("start").value = "";
             document.getElementById("start").style.background = "";
@@ -250,7 +314,20 @@
         }
 
         function update() {
-            let endTime = getEndTime();
+            let endTime;
+
+            if (!state.startTime) {
+                // geen timer
+                document.getElementById("aftellen").innerText = "";
+                document.getElementById("eindtijd").innerText = "";
+            } else if (!state.running && state.remainingTime) {
+                // PAUZE
+                endTime = Date.now() + state.remainingTime;
+            } else {
+                // RUNNING
+                endTime = getEndTime();
+            }
+
             if (!endTime) return;
 
             let now = Date.now();
@@ -275,8 +352,13 @@
             document.getElementById("eindtijd").innerText =
                 "Eindtijd: " + hh + ":" + mm + ":" + ss;
 
-            document.getElementById("aftellen").innerText =
-                "Nog: " + h + "u " + m + "m " + s + "s";
+            let text = "Nog: " + h + "u " + m + "m " + s + "s";
+
+            if (!state.running && state.startTime) {
+                text = "⏹ GESTOPT - " + text;
+            }
+
+            document.getElementById("aftellen").innerText = text;
 
             // 🔔 1 uur notificatie
             if (diff <= 3600000 && diff > 0 && !state.warned) {
@@ -300,12 +382,15 @@
             // 👉 ALTIJD knop updaten
             let btn = document.getElementById("mainButton");
 
-            if (state.startTime) {
-                btn.innerText = "RESET";
-                btn.className = "reset";
-            } else {
+            if (!state.startTime) {
                 btn.innerText = "START";
                 btn.className = "start";
+            } else if (state.running) {
+                btn.innerText = "STOP";
+                btn.className = "remove";
+            } else {
+                btn.innerText = "RESET";
+                btn.className = "reset";
             }
 
             // visuele warning
@@ -327,6 +412,21 @@
             document.getElementById("doseLog").innerText = logText;
             document.querySelector(".dose").disabled = !state.startTime;
             document.querySelector(".remove").disabled = !state.startTime;
+        }
+        function openHistory() {
+            document.getElementById("historyPage").style.display = "block";
+            renderHistory();
+        }
+        function closeHistory() {
+            document.getElementById("historyPage").style.display = "none";
+        }
+        function clearHistory() {
+            if (!confirm("Weet je zeker dat je alle history wilt verwijderen?")) return;
+
+            state.history = {};
+            save();
+
+            renderHistory(); // direct updaten
         }
 
         setInterval(update, 1000);
