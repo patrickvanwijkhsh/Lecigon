@@ -95,15 +95,25 @@
         function startTimer() {
             if (state.startTime && !confirm("Timer loopt al. Opnieuw starten?")) return;
 
-            let input = document.getElementById("start").value;
+            let input = document.getElementById("start");
 
-            if (input) {
-                let [h, m] = input.split(":").map(Number);
+            if (!input.value) {
+                let now = new Date();
+
+                // 👉 vul input veld automatisch
+                let hh = String(now.getHours()).padStart(2, '0');
+                let mm = String(now.getMinutes()).padStart(2, '0');
+
+                input.value = hh + ":" + mm;
+
+                state.startTime = now.getTime();
+
+            } else {
+                let [h, m] = input.value.split(":").map(Number);
                 let startDate = new Date();
                 startDate.setHours(h, m, 0, 0);
+
                 state.startTime = startDate.getTime();
-            } else {
-                state.startTime = Date.now();
             }
 
             state.doses = 0;
