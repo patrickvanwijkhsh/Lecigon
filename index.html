@@ -58,6 +58,26 @@
             white-space: pre-line;
             font-size: 20px;
         }
+
+        button:disabled {
+            opacity: 0.5;
+        }
+
+        .row {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .row button {
+            width: 45%;
+            font-size: 20px;
+            padding: 12px;
+        }
+
+        .row button {
+            width: 45%;
+        }
     </style>
 </head>
 
@@ -65,23 +85,34 @@
     <h2>Lecigon Timer</h2>
 
     <input type="time" id="start" style="font-size:24px;padding:12px;width:70%;margin:10px 0;"><br>
-    <button class="start" onclick="startTimer()">START</button>
+    <button id="mainButton" class="start" onclick="mainAction()">START</button>
 
     <div class="big" id="eindtijd"></div><br>
     <div id="aftellen"></div><br>
     <div id="doseLog"></div>
-
-    <button class="dose" onclick="addDose()">+1 EXTRA DOSIS</button>
-    <button class="remove" onclick="removeLastDose()">- LAATSTE DOSIS</button>
-    <button class="reset" onclick="reset()">RESET</button>
+    <div class="row">
+        <button class="dose" onclick="addDose()">+1 EXTRA DOSIS</button>
+        <button class="remove" onclick="removeLastDose()">- LAATSTE DOSIS</button>
+    </div>
+    <button onclick="toggleHistory()">HISTORY</button>
+    <div id="historyView" style="display:none; white-space:pre-line; font-size:20px; margin-top:20px;"></div>
 
     <script>
-        let state = JSON.parse(localStorage.getItem("lecigon")) || {
-            startTime: null,
-            doses: 0,
-            doseLog: [],
-            warned: false
-        };
+        let state = JSON.parse(localStorage.getItem("lecigon")) || {};
+
+        state.startTime = state.startTime || null;
+        state.doses = state.doses || 0;
+        state.doseLog = state.doseLog || [];
+        state.history = state.history || {};   // 👈 BELANGRIJK
+        state.warned = state.warned || false;
+
+        function mainAction() {
+            if (!state.startTime) {
+                startTimer();
+            } else {
+                reset();
+            }
+        }
 
         function save() {
             localStorage.setItem("lecigon", JSON.stringify(state));
@@ -93,7 +124,7 @@
         }
 
         function startTimer() {
-            if (state.startTime && !confirm("Timer loopt al. Opnieuw starten?")) return;
+            if (state.startTime && !confirm("Timer stoppen en resetten?")) return;
 
             let input = document.getElementById("start");
 
@@ -130,12 +161,60 @@
         function addDose() {
             if (!state.startTime) return;
 
+            let now = new Date();
+            let time = now.toLocaleTimeString().slice(0, 5);
+            let date = now.toLocaleDateString('nl-NL', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric'
+            });
+
             state.doses++;
-            state.doseLog.push(new Date().toLocaleTimeString());
+            state.doseLog.push(time);
+
+            // 👇 history opslaan
+            if (!state.history[date]) {
+                state.history[date] = [];
+            }
+            state.history[date].push(time);
 
             save();
         }
+        function toggleHistory() {
+            let view = document.getElementById("historyView");
 
+            if (view.style.display === "none") {
+                view.style.display = "block";
+                renderHistory();
+            } else {
+                view.style.display = "none";
+            }
+        }
+        function renderHistory() {
+            let view = document.getElementById("historyView");
+
+            let text = "Extra doses:\n\n";
+
+            let history = state.history || {};
+            let dates = Object.keys(history).sort().reverse();
+            if (dates.length === 0) {
+                view.innerText = "Nog geen history";
+                return;
+            }
+
+            for (let date of dates) {
+                text += date + "\n";
+
+                let doses = state.history[date];
+                for (let i = 0; i < doses.length; i++) {
+                    text += (i + 1) + " - " + doses[i] + "\n";
+                }
+
+                text += "\n";
+            }
+
+            view.innerText = text;
+        }
         function removeLastDose() {
             if (state.doseLog.length === 0) return;
 
@@ -151,14 +230,12 @@
         function reset() {
             if (!confirm("Weet je zeker dat je wilt resetten?")) return;
 
-            state = {
-                startTime: null,
-                doses: 0,
-                doseLog: [],
-                warned: false
-            };
+            state.startTime = null;
+            state.doses = 0;
+            state.doseLog = [];
+            state.warned = false;
 
-            localStorage.removeItem("lecigon");
+            save(); // 👈 NIET localStorage.clear!
 
             document.getElementById("start").value = "";
             document.getElementById("eindtijd").innerText = "";
@@ -214,6 +291,17 @@
                 } catch (e) { }
             }
 
+            // 👉 ALTIJD knop updaten
+            let btn = document.getElementById("mainButton");
+
+            if (state.startTime) {
+                btn.innerText = "RESET";
+                btn.className = "reset";
+            } else {
+                btn.innerText = "START";
+                btn.className = "start";
+            }
+
             // visuele warning
             if (diff <= 3600000) {
                 document.body.style.background = "#ffcccc";
@@ -231,6 +319,8 @@
             // logText += (state.doseLog.length + 1) + " -";
 
             document.getElementById("doseLog").innerText = logText;
+            document.querySelector(".dose").disabled = !state.startTime;
+            document.querySelector(".remove").disabled = !state.startTime;
         }
 
         setInterval(update, 1000);
