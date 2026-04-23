@@ -120,7 +120,11 @@
 
         function getEndTime() {
             if (!state.startTime) return null;
-            return state.startTime + (18 * 3600000) - (state.doses * 3600000);
+
+            const BASE_TIME = 18 * 3600000;          // 18 uur
+            const DOSE_PENALTY = (60 + 8) * 60000;  // 68 minuten
+
+            return state.startTime + BASE_TIME - (state.doses * DOSE_PENALTY);
         }
 
         function startTimer() {
@@ -238,9 +242,11 @@
             save(); // 👈 NIET localStorage.clear!
 
             document.getElementById("start").value = "";
+            document.getElementById("start").style.background = "";
             document.getElementById("eindtijd").innerText = "";
             document.getElementById("aftellen").innerText = "";
             document.getElementById("doseLog").innerText = "";
+
         }
 
         function update() {
@@ -325,6 +331,20 @@
 
         setInterval(update, 1000);
         update();
+
+        window.addEventListener("load", () => {
+            if (state.startTime) {
+                let start = new Date(state.startTime);
+
+                let hh = String(start.getHours()).padStart(2, '0');
+                let mm = String(start.getMinutes()).padStart(2, '0');
+
+                document.getElementById("start").value = hh + ":" + mm;
+
+                // 👇 BONUS (groene achtergrond)
+                document.getElementById("start").style.background = "#d4edda";
+            }
+        });
 
         // PWA
         if ('serviceWorker' in navigator) {
